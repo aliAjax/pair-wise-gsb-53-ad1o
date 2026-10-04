@@ -12,6 +12,9 @@ from .domain import Actor, DomainError, PermissionDenied, ValidationError
 RECORD_RE = re.compile(r"^/api/records/(\d+)$")
 ACTION_RE = re.compile(r"^/api/records/(\d+)/actions/([a-z_]+)$")
 AUDIT_RE = re.compile(r"^/api/records/(\d+)/audit$")
+RECEIPTS_RE = re.compile(r"^/api/records/(\d+)/receipts$")
+BATCHES_RE = re.compile(r"^/api/records/(\d+)/batches$")
+BACKFILL_RE = re.compile(r"^/api/records/(\d+)/backfill-calendar$")
 
 
 def make_handler(service: Any, static_dir: Path):
@@ -76,6 +79,12 @@ def make_handler(service: Any, static_dir: Path):
                     records = service.list_records(self._actor(), state=query.get("state", [None])[0], limit=int(query.get("limit", ["100"])[0]))
                     self._send(200, {"items": records})
                     return
+                if parsed.path == "/api/calendars":
+                    self._send(200, {"items": service.list_calendars(self._actor())})
+                    return
+                if parsed.path == "/api/calendars/drafts":
+                    self._send(200, {"items": service.list_calendar_drafts(self._actor())})
+                    return
                 match = RECORD_RE.match(parsed.path)
                 if match:
                     self._send(200, service.get_record(self._actor(), int(match.group(1))))
@@ -83,6 +92,14 @@ def make_handler(service: Any, static_dir: Path):
                 match = AUDIT_RE.match(parsed.path)
                 if match:
                     self._send(200, {"items": service.timeline(self._actor(), int(match.group(1)))})
+                    return
+                match = RECEIPTS_RE.match(parsed.path)
+                if match:
+                    self._send(200, {"items": service.list_receipts(self._actor(), int(match.group(1)))})
+                    return
+                match = BATCHES_RE.match(parsed.path)
+                if match:
+                    self._send(200, {"items": service.batches(self._actor(), int(match.group(1)))})
                     return
                 if parsed.path == "/api/stats":
                     self._send(200, service.stats(self._actor()))
@@ -98,6 +115,20 @@ def make_handler(service: Any, static_dir: Path):
                 if parsed.path == "/api/records":
                     record = service.create(self._actor(), body.get("reference", ""), body.get("data", {}))
                     self._send(201, record)
+                    return
+                if parsed.path == "/api/calendars":
+                    expected = body.get("expected_version")
+                    if expected is not None and not isinstance(expected, int):
+                        raise ValidationError("expected_version必须是整数")
+                    record = service.publish_calendar(self._actor(), body.get("data", {}), expected)
+                    self._send(201, record)
+                    return
+                if parsed.path == "/api/recovery/run":
+                    self._send(200, service.recover(self._actor()))
+                    return
+                match = BACKFILL_RE.match(parsed.path)
+                if match:
+                    self._send(200, service.backfill_calendar_version(self._actor(), int(match.group(1))))
                     return
                 match = ACTION_RE.match(parsed.path)
                 if match:

@@ -14,10 +14,14 @@ DEFAULT_DB = BASE_DIR / "immigration-deadline.db"
 DEFAULT_PORT = 8329
 
 
-def build_service(db_path: str) -> Service:
+def build_service(db_path: str, recover: bool = True) -> Service:
     repository = Repository(db_path)
     audit = AuditRecorder(repository)
-    return Service(repository, DomainRules(), audit)
+    service = Service(repository, DomainRules(), audit)
+    if recover:
+        # 启动时把上次进程崩溃前未完成的计算批次恢复到最近完整批次状态。
+        service.recover()
+    return service
 
 
 def parse_args():
