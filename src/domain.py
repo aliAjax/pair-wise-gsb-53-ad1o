@@ -28,6 +28,11 @@ class PermissionDenied(DomainError):
     code = "permission_denied"
 
 
+class WriteFailure(DomainError):
+    status = 503
+    code = "write_failure"
+
+
 @dataclass(frozen=True)
 class Actor:
     user_id: str

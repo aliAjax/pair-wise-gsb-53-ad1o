@@ -12,6 +12,8 @@ from .domain import Actor, DomainError, PermissionDenied, ValidationError
 RECORD_RE = re.compile(r"^/api/records/(\d+)$")
 ACTION_RE = re.compile(r"^/api/records/(\d+)/actions/([a-z_]+)$")
 AUDIT_RE = re.compile(r"^/api/records/(\d+)/audit$")
+BACKFILL_RE = re.compile(r"^/api/records/(\d+)/backfill-calendar$")
+RETAINED_RESOLVE_RE = re.compile(r"^/api/retained-inputs/(\d+)/resolve$")
 
 
 def make_handler(service: Any, static_dir: Path):
@@ -87,6 +89,21 @@ def make_handler(service: Any, static_dir: Path):
                 if parsed.path == "/api/stats":
                     self._send(200, service.stats(self._actor()))
                     return
+                if parsed.path == "/api/calendars":
+                    self._send(200, {"items": service.list_calendars(self._actor())})
+                    return
+                if parsed.path == "/api/batches":
+                    query = parse_qs(parsed.query)
+                    record_id = query.get("record_id", [None])[0]
+                    record_id = int(record_id) if record_id else None
+                    self._send(200, {"items": service.list_batches(self._actor(), record_id=record_id, status=query.get("status", [None])[0])})
+                    return
+                if parsed.path == "/api/retained-inputs":
+                    query = parse_qs(parsed.query)
+                    record_id = query.get("record_id", [None])[0]
+                    record_id = int(record_id) if record_id else None
+                    self._send(200, {"items": service.retained_inputs(self._actor(), record_id=record_id)})
+                    return
                 self._send(404, {"error": "not_found", "message": "路径不存在"})
             except Exception as exc:
                 self._handle_error(exc)
@@ -106,6 +123,34 @@ def make_handler(service: Any, static_dir: Path):
                         raise ValidationError("expected_version必须是整数")
                     record = service.act(self._actor(), int(match.group(1)), version, match.group(2), body.get("data", {}))
                     self._send(200, record)
+                    return
+                if parsed.path == "/api/calendars":
+                    expected_version = body.get("expected_version")
+                    if expected_version is not None and not isinstance(expected_version, int):
+                        raise ValidationError("expected_version必须是整数")
+                    calendar = service.publish_calendar(self._actor(), body.get("data", {}), expected_version)
+                    self._send(201, calendar)
+                    return
+                match = BACKFILL_RE.match(parsed.path)
+                if match:
+                    version = body.get("expected_version")
+                    if not isinstance(version, int):
+                        raise ValidationError("expected_version必须是整数")
+                    calendar_version = body.get("calendar_version")
+                    if calendar_version is not None and not isinstance(calendar_version, int):
+                        raise ValidationError("calendar_version必须是整数")
+                    record = service.backfill_calendar(self._actor(), int(match.group(1)), version, calendar_version)
+                    self._send(200, record)
+                    return
+                if parsed.path == "/api/recover":
+                    data = body.get("data", {})
+                    record = service.recover(self._actor(), record_id=data.get("record_id"), batch_ref=data.get("batch_ref"))
+                    self._send(200, record)
+                    return
+                match = RETAINED_RESOLVE_RE.match(parsed.path)
+                if match:
+                    result = service.resolve_retained(self._actor(), int(match.group(1)))
+                    self._send(200, result)
                     return
                 self._send(404, {"error": "not_found", "message": "路径不存在"})
             except Exception as exc:
